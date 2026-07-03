@@ -40,7 +40,6 @@ namespace Vintagestory.GameContent.Mechanics
             string orientations = (Block as BlockSpurGear).Orientation;
 
             // This applies only when the BE is being updated when the gear orientations change
-
             if (this.turnDir1 != null)
             {
                 if (propagationDir == turnDir1) propagationDir = turnDir2.Opposite;

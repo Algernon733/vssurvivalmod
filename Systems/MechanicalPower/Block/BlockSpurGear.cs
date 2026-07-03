@@ -112,7 +112,7 @@ namespace Vintagestory.GameContent.Mechanics
 
             (toPlaceBlock as BlockMPBase).ExchangeBlockAt(world, gearPos);
 
-            // Attach the new extra gear to its axle
+            // Connect the new extra gear to its axle
             IMechanicalPowerBlock neighbour = be?.Block as IMechanicalPowerBlock;
             neighbour?.DidConnectAt(world, axlePos, extraGearWillBeFacing.Opposite);
             WasPlaced(world, gearPos, extraGearWillBeFacing);
@@ -135,7 +135,7 @@ namespace Vintagestory.GameContent.Mechanics
 
             (toPlaceBlock as BlockMPBase).ExchangeBlockAt(world, pos);
 
-            // Attach the new inside axle to the opposite axle
+            // Connect the new inside axle to the opposite axle
             BlockPos oppositeAxlePos = pos.AddCopy(Facing.Opposite);
             IMechanicalPowerBlock neighbour = world.BlockAccessor.GetBlock(oppositeAxlePos) as IMechanicalPowerBlock;
             if (neighbour != null && neighbour.HasMechPowerConnectorAt(world, oppositeAxlePos, Facing, this))
@@ -149,7 +149,7 @@ namespace Vintagestory.GameContent.Mechanics
 
         public override bool OnBlockInteractStart(IWorldAccessor world, IPlayer byPlayer, BlockSelection blockSel)
         {
-            // Right clicking/placing a solo spur gear with a wooden axle puts it inside the spur gear' block
+            // Right clicking/placing a solo spur gear block with a wooden axle puts it inside the spur gear's block
             ItemSlot slot = byPlayer.InventoryManager.ActiveHotbarSlot;
             if (WoodenAxleCheck(slot?.Itemstack?.Block) && TryAddInsideAxle(world, blockSel.Position))
             {
@@ -168,7 +168,7 @@ namespace Vintagestory.GameContent.Mechanics
 
         public override bool TryPlaceBlock(IWorldAccessor world, IPlayer byPlayer, ItemStack itemstack, BlockSelection blockSel, ref string failureCode)
         {
-            // Right clicking/placing an adjacent axle to a solo spur gear with another spur gear puts it on that adjacent axle inside the spur gear' block
+            // Right clicking/placing an adjacent axle to a solo spur gear with another spur gear puts it on that adjacent axle inside the spur gear's block
             if (TryAddExtraGear(world, byPlayer, blockSel))
             {
                 return true;
