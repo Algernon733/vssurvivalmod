@@ -22,6 +22,17 @@ namespace Vintagestory.GameContent.Mechanics
 
         public override bool TryPlaceBlock(IWorldAccessor world, IPlayer byPlayer, ItemStack itemstack, BlockSelection blockSel, ref string failureCode)
         {
+            // Only wooden axles can be placed inside spur gears.
+            if (BlockSpurGear.WoodenAxleCheck(this) && world.BlockAccessor.GetBlock(blockSel.Position) is BlockSpurGear spurgear)
+            {
+                if (spurgear.TryAddInsideAxle(world, blockSel.Position))
+                    return true;
+
+                failureCode = "notreplaceable";
+
+                return false;
+            }
+
             if (!CanPlaceBlock(world, byPlayer, blockSel, ref failureCode))
             {
                 return false;
