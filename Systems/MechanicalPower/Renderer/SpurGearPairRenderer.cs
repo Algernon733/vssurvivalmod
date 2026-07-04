@@ -47,32 +47,36 @@ namespace Vintagestory.GameContent.Mechanics
         protected override void UpdateLightAndTransformMatrix(int index, Vec3f distToCamera, float rotationRad, IMechanicalPowerRenderable dev)
         {
             BEBehaviorMPSpurGear gear = dev as BEBehaviorMPSpurGear;
-            if (gear != null)
+
+            UpdateGearTransformMatrix(floatsSpurGearOne.Values, index, distToCamera, dev, gear, gear?.gearOneFacing, rotationRad);
+            UpdateGearTransformMatrix(floatsSpurGearTwo.Values, index, distToCamera, dev, gear, gear?.gearTwoFacing, rotationRad);
+        }
+
+        private void UpdateGearTransformMatrix(float[] values, int index, Vec3f distToCamera, IMechanicalPowerRenderable dev, BEBehaviorMPSpurGear gear, BlockFacing gearFacing, float rotationRad)
+        {
+            float rotX = 0f, rotY = 0f, rotZ = 0f;
+
+            if (gearFacing != null)
             {
-                BlockFacing inTurn = gear.GetPropagationDirection();
-                if (inTurn == gear.axis1 || inTurn == gear.axis2)
+                BlockFacing turnDir = gear.GearTurnDir(gearFacing);
+                if (turnDir == BlockFacing.DOWN || turnDir == BlockFacing.EAST || turnDir == BlockFacing.SOUTH)
                 {
                     rotationRad = -rotationRad;
                 }
+
+                // Each spur gear is rotated a quarter of a tooth,
+                // so when two gears meet their teeth are offset by half a tooth, resulting in their teeth interlacing
+                float gearToothPhase = -5.625f * GameMath.DEG2RAD * (gearFacing.Normali.X + gearFacing.Normali.Y + gearFacing.Normali.Z);
+
+                switch (gearFacing.Axis)
+                {
+                    case EnumAxis.X: rotX = -rotationRad + gearToothPhase; break;
+                    case EnumAxis.Y: rotY = rotationRad + gearToothPhase; break;
+                    case EnumAxis.Z: rotZ = -rotationRad + gearToothPhase; break;
+                }
             }
-            float rotX = rotationRad * dev.AxisSign[0];
-            float rotY = rotationRad * dev.AxisSign[1];
-            float rotZ = rotationRad * dev.AxisSign[2];
-            UpdateLightAndTransformMatrix(floatsSpurGearOne.Values, index, distToCamera, dev.LightRgba, rotX, rotY, rotZ);
 
-            if (dev.AxisSign.Length < 4)
-            {
-                return;
-            }
-
-            // Each gear tooth takes 22.5 degrees of rotation to reach the initial position of the tooth in front,
-            // so we mesh the two gear's teeth together by offsetting the 2nd gear's rotation by half of that
-            rotationRad += 11.25f * GameMath.DEG2RAD;
-
-            rotX = rotationRad * dev.AxisSign[3];
-            rotY = rotationRad * dev.AxisSign[4];
-            rotZ = rotationRad * dev.AxisSign[5];
-            UpdateLightAndTransformMatrix(floatsSpurGearTwo.Values, index, distToCamera, dev.LightRgba, rotX, rotY, rotZ);
+            UpdateLightAndTransformMatrix(values, index, distToCamera, dev.LightRgba, rotX, rotY, rotZ);
         }
 
         public override void OnRenderFrame(float deltaTime, IShaderProgram prog)

@@ -1,6 +1,9 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
+using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Util;
 
@@ -13,26 +16,63 @@ namespace Vintagestory.GameContent.Mechanics
     {
         public BlockFacing Facing => BlockFacing.FromFirstLetter(Block.Variant["orientation"]);
 
-        public BlockFacing axis1 = null;
-        public BlockFacing axis2 = null;
         public BlockFacing turnDir1 = null;
         public BlockFacing turnDir2 = null;
+        public BlockFacing gearOneFacing = null;
+        public BlockFacing gearTwoFacing = null;
+
+        float angleOffset;
+
+        static readonly Dictionary<string, (BlockFacing turnDir1, BlockFacing turnDir2, BlockFacing gearOne, BlockFacing gearTwo)> pairOrientationTable = new()
+        {
+            ["en"] = (BlockFacing.EAST,  BlockFacing.NORTH, BlockFacing.NORTH, BlockFacing.EAST),
+            ["nw"] = (BlockFacing.NORTH, BlockFacing.WEST,  BlockFacing.WEST,  BlockFacing.NORTH),
+            ["ws"] = (BlockFacing.WEST,  BlockFacing.SOUTH, BlockFacing.SOUTH, BlockFacing.WEST),
+            ["es"] = (BlockFacing.EAST,  BlockFacing.SOUTH, BlockFacing.EAST,  BlockFacing.SOUTH),
+            ["nu"] = (BlockFacing.NORTH, BlockFacing.UP,    BlockFacing.UP,    BlockFacing.NORTH),
+            ["eu"] = (BlockFacing.EAST,  BlockFacing.UP,    BlockFacing.UP,    BlockFacing.EAST),
+            ["su"] = (BlockFacing.SOUTH, BlockFacing.UP,    BlockFacing.UP,    BlockFacing.SOUTH),
+            ["wu"] = (BlockFacing.WEST,  BlockFacing.UP,    BlockFacing.UP,    BlockFacing.WEST),
+            ["nd"] = (BlockFacing.NORTH, BlockFacing.DOWN,  BlockFacing.NORTH, BlockFacing.DOWN),
+            ["ed"] = (BlockFacing.EAST,  BlockFacing.DOWN,  BlockFacing.DOWN,  BlockFacing.EAST),
+            ["sd"] = (BlockFacing.SOUTH, BlockFacing.DOWN,  BlockFacing.SOUTH, BlockFacing.DOWN),
+            ["wd"] = (BlockFacing.WEST,  BlockFacing.DOWN,  BlockFacing.WEST,  BlockFacing.DOWN),
+        };
 
         public override float AngleRad
         {
             get
             {
                 if (turnDir1 == null)
-                    return base.AngleRad;
+                    return base.AngleRad + angleOffset;
 
-                float angle = base.AngleRad;
-                bool flip = propagationDir == BlockFacing.DOWN || propagationDir == BlockFacing.WEST;
-                return flip ? GameMath.TWOPI - angle : angle;
+                if (network != null)
+                    lastKnownAngleRad = network.AngleRad * GearedRatio % GameMath.TWOPI;
+
+                return lastKnownAngleRad;
             }
         }
 
         public BEBehaviorMPSpurGear(BlockEntity blockentity) : base(blockentity)
         {
+        }
+
+        public override void Initialize(ICoreAPI api, JsonObject properties)
+        {
+            base.Initialize(api, properties);
+
+            // Each spur gear is rotated a quarter of a tooth,
+            // so when two gears meet their teeth are offset by half a tooth, resulting in their teeth interlacing
+            float quarter16ToothRotationDeg = -5.625f;
+            Vec3f gearToothRotation = Facing.Normalf * (quarter16ToothRotationDeg * GameMath.DEG2RAD);
+            Vec3f rotationAxis = Facing.Axis switch
+            {
+                EnumAxis.X => new Vec3f(-1f, 0f, 0f),
+                EnumAxis.Y => new Vec3f(0f, 1f, 0f),
+                _ => new Vec3f(0f, 0f, -1f),
+            };
+
+            angleOffset = gearToothRotation.Dot(rotationAxis);
         }
 
         public override void SetOrientations()
@@ -50,125 +90,28 @@ namespace Vintagestory.GameContent.Mechanics
                 this.turnDir2 = null;
             }
 
-            axis1 = null;
-            axis2 = null;
+            gearOneFacing = null;
+            gearTwoFacing = null;
 
-            switch (orientations)
+            bool isGearPair = pairOrientationTable.TryGetValue(orientations, out var pair);
+            turnDir1 = pair.turnDir1;
+            turnDir2 = pair.turnDir2;
+            gearOneFacing = pair.gearOne;
+            gearTwoFacing = pair.gearTwo;
+
+            if (isGearPair)
             {
-                // Solo gears and gears with axles
-                case "n":
-                case "ns":
-                case "s":
-                case "sn":
-                    AxisSign = new int[3] { 0, 0, -1 };
-                    break;
-
-                case "e":
-                case "ew":
-                case "w":
-                case "we":
-                    AxisSign = new int[3] { -1, 0, 0 };
-                    break;
-
-                case "u":
-                case "ud":
-                case "d":
-                case "du":
-                    AxisSign = new int[3] { 0, 1, 0 };
-                    break;
-
-                // Two gears
-                case "es":
-                    AxisSign = new int[6] { 1, 0, 0, 0, 0, -1 };
-                    axis1 = BlockFacing.EAST;
-                    this.turnDir1 = BlockFacing.EAST;
-                    this.turnDir2 = BlockFacing.SOUTH;
-                    break;
-
-                case "ws":
-                    AxisSign = new int[6] { 0, 0, -1, -1, 0, 0 };
-                    axis1 = BlockFacing.WEST;
-                    this.turnDir1 = BlockFacing.WEST;
-                    this.turnDir2 = BlockFacing.SOUTH;
-                    break;
-
-                case "nw":
-                    AxisSign = new int[6] { 1, 0, 0, 0, 0, -1 };
-                    axis2 = BlockFacing.EAST;
-                    this.turnDir1 = BlockFacing.NORTH;
-                    this.turnDir2 = BlockFacing.WEST;
-                    break;
-
-                case "sd":
-                    AxisSign = new int[6] { 0, 0, -1, 0, -1, 0 };
-                    this.turnDir1 = BlockFacing.SOUTH;
-                    this.turnDir2 = BlockFacing.DOWN;
-                    break;
-
-                case "ed":
-                    AxisSign = new int[6] { 0, 1, 0, 1, 0, 0 };
-                    axis1 = BlockFacing.EAST;
-                    axis2 = BlockFacing.DOWN;
-                    this.turnDir1 = BlockFacing.EAST;
-                    this.turnDir2 = BlockFacing.DOWN;
-                    break;
-
-                case "wd":
-                    AxisSign = new int[6] { -1, 0, 0, 0, 1, 0 };
-                    axis1 = BlockFacing.DOWN;
-                    axis2 = BlockFacing.WEST;
-                    this.turnDir1 = BlockFacing.WEST;
-                    this.turnDir2 = BlockFacing.DOWN;
-                    break;
-
-                case "nd":
-                    AxisSign = new int[6] { 0, 0, -1, 0, 1, 0 };
-                    axis1 = BlockFacing.DOWN;
-                    this.turnDir1 = BlockFacing.NORTH;
-                    this.turnDir2 = BlockFacing.DOWN;
-                    break;
-
-                case "nu":
-                    AxisSign = new int[6] { 0, -1, 0, 0, 0, -1 };
-                    axis1 = BlockFacing.UP;
-                    this.turnDir1 = BlockFacing.NORTH;
-                    this.turnDir2 = BlockFacing.UP;
-                    break;
-
-                case "eu":
-                    AxisSign = new int[6] { 0, -1, 0, 1, 0, 0 };
-                    axis1 = BlockFacing.UP;
-                    axis2 = BlockFacing.EAST;
-                    this.turnDir1 = BlockFacing.EAST;
-                    this.turnDir2 = BlockFacing.UP;
-                    break;
-
-                case "su":
-                    AxisSign = new int[6] { 0, 1, 0, 0, 0, -1 };
-                    axis1 = BlockFacing.DOWN;
-                    this.turnDir1 = BlockFacing.SOUTH;
-                    this.turnDir2 = BlockFacing.UP;
-                    break;
-
-                case "wu":
-                    AxisSign = new int[6] { 0, -1, 0, -1, 0, 0 };
-                    axis1 = BlockFacing.WEST;
-                    axis2 = BlockFacing.UP;
-                    this.turnDir1 = BlockFacing.WEST;
-                    this.turnDir2 = BlockFacing.UP;
-                    break;
-
-                case "en":
-                    AxisSign = new int[6] { 0, 0, 1, 1, 0, 0 };
-                    axis1 = BlockFacing.SOUTH;
-                    axis2 = BlockFacing.NORTH;
-                    this.turnDir1 = BlockFacing.EAST;
-                    this.turnDir2 = BlockFacing.NORTH;
-                    break;
-
-                default:
-                    AxisSign = new int[3] { 0, 0, -1 };
-                    break;
+                AxisSign = new int[6]; // Defer to SpurGearPairRenderer to spin each gear individually
+            }
+            else
+            {
+                // Solo gears and gears with axles spin around their mounting axle's axis
+                AxisSign = Facing.Axis switch
+                {
+                    EnumAxis.X => [-1, 0, 0],
+                    EnumAxis.Y => [0, 1, 0],
+                    _ => [0, 0, -1],
+                };
             }
         }
 
@@ -213,6 +156,30 @@ namespace Vintagestory.GameContent.Mechanics
 
             return propagationDir == test;
         }
+
+        public BlockFacing GearTurnDir(BlockFacing gearFacing)
+        {
+            if (propagationDir.Axis == gearFacing.Axis)
+                return propagationDir;
+
+            return GetPropagationDirectionInput();
+        }
+
+        public override BlockFacing GetPropagatingTurnDir(BlockFacing toFacing)
+        {
+            BlockSpurGear blockSpurGear = Block as BlockSpurGear;
+            BlockFacing meshedGear;
+            if (Api == null)
+                meshedGear = null;
+            else
+                meshedGear = blockSpurGear.GetInterlacingGearsFace(Api.World.BlockAccessor.GetBlock(Position.AddCopy(toFacing)), toFacing);
+
+            if (meshedGear != null)
+                return GearTurnDir(meshedGear).Opposite; // Side by side. Turn the interlaced spur the opposite rotation
+
+            return base.GetPropagatingTurnDir(toFacing);
+        }
+
         public override float GetResistance()
         {
             return 0.0005f;
@@ -221,54 +188,93 @@ namespace Vintagestory.GameContent.Mechanics
         public override MechPowerPath[] GetMechPowerExits(MechPowerPath fromExitTurnDir)
         {
             // This method could be called from another (earlier in the loading chunk) block's Initialise() method, i.e. before this itself is initialised.
-            if (this.AxisSign == null) this.SetOrientations();
+            if (this.AxisSign == null)
+                this.SetOrientations();
 
             BlockSpurGear blockSpurGear = Block as BlockSpurGear;
+            List<MechPowerPath> paths = [];
 
             if (blockSpurGear.HasExtraGear())
             {
-                bool invert = fromExitTurnDir.invert;
                 BlockFacing[] connectors = blockSpurGear.Facings;
                 BlockFacing inputSide = fromExitTurnDir.OutFacing;
-                if (!connectors.Contains(inputSide))
+                bool invert = fromExitTurnDir.invert;
+
+                if (connectors.Contains(inputSide) || connectors.Contains(inputSide.Opposite)) // Power came in through an axle
                 {
-                    inputSide = inputSide.Opposite;
-                    invert = !invert;
+                    if (!connectors.Contains(inputSide))
+                    {
+                        inputSide = inputSide.Opposite;
+                        invert = !invert;
+                    }
+
+                    foreach (BlockFacing pathFacing in connectors)
+                    {
+                        if (GetInterlacingGearFace(pathFacing) != null)
+                            continue;
+
+                        paths.Add(new MechPowerPath(pathFacing, this.GearedRatio, null, pathFacing == inputSide ? invert : !invert));
+                    }
+                }
+                else // Power came in through an interlaced gear
+                {
+                    foreach (BlockFacing pathFacing in connectors)
+                    {
+                        if (GetInterlacingGearFace(pathFacing) != null)
+                            continue;
+
+                        BlockFacing gearTurnDir = GearTurnDir(pathFacing);
+                        paths.Add(fromExitTurnDir.PropagatedClone(pathFacing, gearTurnDir != pathFacing, gearTurnDir));
+                    }
+                }
+            }
+            else
+            {
+                MechPowerPath mechPower;
+                MechPowerPath oppositeMechPower = null;
+                if (blockSpurGear.HasInsideAxle()) // Power the mounting and opposite axle
+                {
+                    if (fromExitTurnDir.OutFacing.Opposite == Facing)
+                        mechPower = fromExitTurnDir;
+                    else
+                        mechPower = fromExitTurnDir.PropagatedClone(Facing, fromExitTurnDir.invert, propagationDir);
+                    oppositeMechPower = new MechPowerPath(mechPower.OutFacing.Opposite, mechPower.gearingRatio, Position, !mechPower.invert);
+                }
+                else // Just power the mounting axle
+                {
+                    if (fromExitTurnDir.OutFacing == Facing)
+                        mechPower = fromExitTurnDir;
+                    else if (fromExitTurnDir.OutFacing.Axis != Facing.Axis)
+                        mechPower = fromExitTurnDir.PropagatedClone(Facing, fromExitTurnDir.invert, propagationDir);
+                    else
+                        mechPower = new MechPowerPath(Facing, fromExitTurnDir.gearingRatio, Position, !fromExitTurnDir.invert);
                 }
 
-                MechPowerPath[] paths = new MechPowerPath[connectors.Length];
-                for (int i = 0; i < paths.Length; i++)
-                {
-                    BlockFacing pathFacing = connectors[i];
-
-                    // An spur gear's output side rotates in the opposite sense from the input side
-                    paths[i] = new MechPowerPath(pathFacing, this.GearedRatio, null, pathFacing == inputSide ? invert : !invert);
-                }
-                return paths;
+                paths.Add(mechPower);
+                if (oppositeMechPower != null)
+                    paths.Add(oppositeMechPower);
             }
 
-            BlockFacing facing = Facing;
-
-            if (blockSpurGear.HasInsideAxle()) // Power the mounting and opposite axle
+            // Spin the adjaceent+interlaced spur gears in the opposite sense
+            foreach (BlockFacing face in BlockFacing.ALLFACES)
             {
-                MechPowerPath axial;
-                if (fromExitTurnDir.OutFacing.Opposite == facing)
-                    axial = fromExitTurnDir;
-                else
-                    axial = fromExitTurnDir.PropagatedClone(facing, fromExitTurnDir.invert, propagationDir);
-
-                return [axial, new MechPowerPath(axial.OutFacing.Opposite, axial.gearingRatio, Position, !axial.invert)];
+                BlockFacing meshedGear = GetInterlacingGearFace(face);
+                if (meshedGear != null)
+                    paths.Add(fromExitTurnDir.PropagatedClone(face, !fromExitTurnDir.invert, GearTurnDir(meshedGear).Opposite));
             }
-            else // Just power the mounting axle
-            {
-                MechPowerPath toMount;
-                if (fromExitTurnDir.OutFacing == facing)
-                    toMount = fromExitTurnDir;
-                else
-                    toMount = new MechPowerPath(facing, fromExitTurnDir.gearingRatio, Position, !fromExitTurnDir.invert);
 
-                return [toMount];
-            }
+            return [.. paths];
+        }
+
+        /// <summary>
+        /// Null if not interlacing
+        /// </summary>
+        private BlockFacing GetInterlacingGearFace(BlockFacing face)
+        {
+            if (Api == null)
+                return null;
+
+            return (Block as BlockSpurGear).GetInterlacingGearsFace(Api.World.BlockAccessor.GetBlock(Pos.AddCopy(face)), face);
         }
 
         public override void GetBlockInfo(IPlayer forPlayer, StringBuilder sb)
@@ -276,9 +282,11 @@ namespace Vintagestory.GameContent.Mechanics
             base.GetBlockInfo(forPlayer, sb);
             if (Api.World.EntityDebugMode)
             {
-                string orientations = Block.Variant["orientation"];
-                bool rev = propagationDir == axis1 || propagationDir == axis2;
-                sb.AppendLine(string.Format(Lang.Get("Orientation: {0} {1}", orientations, rev ? "-" : "")));
+                sb.AppendLine(string.Format(Lang.Get("Orientation: {0}", Block.Variant["orientation"])));
+                if (gearOneFacing != null)
+                {
+                    sb.AppendLine(string.Format("Gear one: {0} turning {1}, gear two: {2} turning {3}", gearOneFacing, GearTurnDir(gearOneFacing), gearTwoFacing, GearTurnDir(gearTwoFacing)));
+                }
             }
         }
     }

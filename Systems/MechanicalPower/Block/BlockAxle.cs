@@ -26,11 +26,14 @@ namespace Vintagestory.GameContent.Mechanics
             if (BlockSpurGear.WoodenAxleCheck(this) && world.BlockAccessor.GetBlock(blockSel.Position) is BlockSpurGear spurgear)
             {
                 if (spurgear.TryAddInsideAxle(world, blockSel.Position))
+                {
                     return true;
-
-                failureCode = "notreplaceable";
-
-                return false;
+                }
+                else
+                {
+                    failureCode = "notreplaceable";
+                    return false;
+                }
             }
 
             if (!CanPlaceBlock(world, byPlayer, blockSel, ref failureCode))

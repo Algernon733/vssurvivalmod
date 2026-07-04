@@ -1,4 +1,5 @@
 using System.Linq;
+using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.MathTools;
 
@@ -16,6 +17,7 @@ namespace Vintagestory.GameContent.Mechanics
         {
             Orientation = Variant["orientation"];
             Facing = BlockFacing.FromFirstLetter(Orientation[0]);
+
             base.OnLoaded(api);
         }
 
@@ -39,7 +41,69 @@ namespace Vintagestory.GameContent.Mechanics
         public bool HasExtraGear() => Orientation.Length == 2 && !HasInsideAxle();
         public bool IsOrientedTo(BlockFacing facing) => Orientation.Contains(facing.Code[0]);
 
-        public override bool HasMechPowerConnectorAt(IWorldAccessor world, BlockPos pos, BlockFacing face, BlockMPBase forBlock) => IsOrientedTo(face);
+        public BlockFacing[] GearsInThisBlock => HasExtraGear() ? Facings : [Facing];
+
+        /// <summary>
+        /// Null if not interlacing
+        /// </summary>
+        public BlockFacing GetInterlacingGearsFace(Block block, BlockFacing face)
+        {
+            if (block is not BlockSpurGear otherGear)
+                return null;
+
+            foreach (BlockFacing gearFace in GearsInThisBlock)
+            {
+                if (face.Axis != gearFace.Axis && otherGear.GearsInThisBlock.Contains(gearFace))
+                    return gearFace;
+            }
+
+            return null;
+        }
+
+        public bool CanConnectWith(Block block, BlockFacing face) => GetInterlacingGearsFace(block, face) != null;
+
+        /// <summary>
+        /// Count the directly adjacent gears, where their teeth interlace with this gear
+        /// </summary>
+        public static int CountInterlacedGears(IWorldAccessor world, BlockPos pos, BlockFacing gearFacing)
+        {
+            int count = 0;
+            foreach (BlockFacing face in BlockFacing.ALLFACES)
+            {
+                if (face.Axis == gearFacing.Axis)
+                    continue;
+
+                if (world.BlockAccessor.GetBlock(pos.AddCopy(face)) is BlockSpurGear neighbour && neighbour.GearsInThisBlock.Contains(gearFacing))
+                    count++;
+            }
+
+            return count;
+        }
+
+        public static bool WouldCreateFourWayJunction(IWorldAccessor world, BlockPos pos, BlockFacing newGearFacing)
+        {
+            if (CountInterlacedGears(world, pos, newGearFacing) >= 4)
+                return true; // Would be the 4 way junction
+
+            foreach (BlockFacing face in BlockFacing.ALLFACES)
+            {
+                if (face.Axis == newGearFacing.Axis)
+                    continue;
+
+                BlockPos neighbourPos = pos.AddCopy(face);
+                if (world.BlockAccessor.GetBlock(neighbourPos) is BlockSpurGear neighbour
+                    && neighbour.GearsInThisBlock.Contains(newGearFacing)
+                    && CountInterlacedGears(world, neighbourPos, newGearFacing) >= 3)
+                {
+                    return true; // Would make another gear the 4 way junction
+                }
+            }
+
+            return false;
+        }
+
+        public override bool HasMechPowerConnectorAt(IWorldAccessor world, BlockPos pos, BlockFacing face, BlockMPBase forBlock)
+            => IsOrientedTo(face) || CanConnectWith(forBlock, face);    // Side by side: powers any matching spur gear adjacent
 
         /// <summary>
         /// Only wooden axles can be placed inside spur gears.
@@ -105,6 +169,13 @@ namespace Vintagestory.GameContent.Mechanics
             Block toPlaceBlock = getGearBlock(world, existingGear.Facing, extraGearWillBeFacing);
             if (toPlaceBlock == null)
                 return false;
+
+            // 4 way junctions can create deadlocks
+            // Theres currently no handling for those deadlocks so for now we don't allow them to be created
+            if (WouldCreateFourWayJunction(world, gearPos, extraGearWillBeFacing))
+            {
+                return false;
+            }
 
             // The server will update the client with the new gear block's state
             if (world.Side == EnumAppSide.Client)
@@ -176,7 +247,6 @@ namespace Vintagestory.GameContent.Mechanics
             else if (world.BlockAccessor.GetBlock(blockSel.Position) is BlockSpurGear)
             {
                 // "Another block is in the way"
-                failureCode = "notreplaceable";
                 return false;
             }
 
@@ -204,6 +274,9 @@ namespace Vintagestory.GameContent.Mechanics
                     axleFoundButUnsupported = true;
                     continue;
                 }
+
+                if (WouldCreateFourWayJunction(world, blockSel.Position, face))
+                    continue;
 
                 targetFace = face;
                 break;
